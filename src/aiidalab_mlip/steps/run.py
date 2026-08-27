@@ -68,7 +68,7 @@ class RunWizardStep(Step, awb.WizardAppWidgetStep):
 
                 case "Single Point":
                     builder = Singlepoint.get_builder()
-                    builder.properties = orm.Str(" ".join(task_parameters["properties"]))
+                    builder.properties = orm.List(list(task_parameters["properties"]))
                 case "Molecular Dynamics":
                     builder = MD.get_builder()
                     builder.ensemble = orm.Str(task_parameters.pop("ensemble"))

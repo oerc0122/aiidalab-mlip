@@ -134,6 +134,6 @@ class StructureWizardStep(Step, WizardAppWidgetStep):
                 self.status.success("Structure submitted.")
             else:
                 self.model.submitted = False
-                self.status.success("No structure defined.")
+                self.status.failure("No structure defined.")
 
             super().submit(b)
