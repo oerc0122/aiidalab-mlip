@@ -1,12 +1,16 @@
 """Main application data model."""
 
-from traitlets import HasTraits
+
+from traitlets import HasTraits, Unicode
 
 from . import CodeModel, PredictionModel, ResultsModel, StructureModel, TaskModel
 
 
 class MainAppModel(HasTraits):
     """Main application data model."""
+
+    process_label = Unicode("")
+    process_description = Unicode("")
 
     def __init__(self) -> None:
         """Initialize the main app model."""

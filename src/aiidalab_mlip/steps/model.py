@@ -7,8 +7,8 @@ import ipywidgets as ipw
 from aiida import orm
 from aiida.orm import Code, QueryBuilder
 from aiida_mlip.data.model import ModelData
-from alc_aiidalab_widgets.layouts import Step
-from alc_aiidalab_widgets.widgets import Status, AiiDADatabaseQueryWidget
+from alc_aiidalab_widgets.layouts import WizardStep
+from alc_aiidalab_widgets.widgets import AiiDADatabaseQueryWidget
 from alc_aiidalab_widgets.widgets.parameters import ParametersBlock
 from traitlets import link
 
@@ -16,7 +16,7 @@ from aiidalab_mlip.models.code import CodeModel
 from aiidalab_mlip.util import tab_from_dict
 
 
-class ModelWizardStep(Step, awb.WizardAppWidgetStep):
+class ModelWizardStep(WizardStep):
     """Wizard step for viewing results."""
 
     def __init__(self, model: CodeModel, **kwargs):
@@ -56,22 +56,6 @@ class ModelWizardStep(Step, awb.WizardAppWidgetStep):
             layout=ipw.Layout(width="80%"),
         )
         link((self.ncpus_input, "value"), (self.model, "ncpus"))
-
-        self.label = ipw.Text(
-            value=self.model.process_label,
-            placeholder="Enter process label",
-            description="Label:",
-            layout=ipw.Layout(width="80%"),
-        )
-        link((self.label, "value"), (self.model, "process_label"))
-
-        self.description = ipw.Textarea(
-            value=self.model.process_description,
-            placeholder="Enter process description",
-            description="Description:",
-            layout=ipw.Layout(width="80%"),
-        )
-        link((self.description, "value"), (self.model, "process_description"))
 
         self.model_from_uri = ipw.Text(
             value="",
@@ -214,20 +198,20 @@ class ModelWizardStep(Step, awb.WizardAppWidgetStep):
                 self.model_type,
                 self.code_box,
                 self.ncpus_input,
-                self.label,
-                self.description,
                 self.device,
             ],
             **kwargs,
         )
+        self.ok()
 
     def _try_load_code(self, code: str) -> Code | None:
         # Load the code
+        self.running()
         self.logspace.append_stdout("Loading janus code...\n")
         try:
             return orm.load_code(code)
         except Exception:
-            self.status.failure(f"""\
+            self.fail(f"""\
 Error: Code '{code}' not found. \n
 Try: verdi code create core.code.installed --config janus.yml""")
 
@@ -242,23 +226,23 @@ Try: verdi code create core.code.installed --config janus.yml""")
             self.logspace.append_stdout("Loading model from file...")
 
             if not model_pth.is_file():
-                self.status.failure(f"File ({model_str}) not found.")
+                self.fail(f"File ({model_str}) not found.")
                 return None
 
             model_uri = model_pth.as_uri()
 
         try:
             model_str = ModelData.from_uri(model_uri, architecture=arch, cache_dir="mlips")
+            model_str.label = f"{arch}:{model_uri}"
             self.model.arch = arch
-            self.status.success(f"Loaded model from {model_uri}.")
+            self.ok(f"Loaded model from {model_uri}.")
             return model_str
         except Exception as err:
-            self.status.failure(f"Unable to load model from {model_uri}.")
-            self.status.append(f"Due to: {err}", status=Status._Stat.FAILURE)
-            raise
+            self.fail(f"Unable to load model from {model_uri}. \nDue to: {err}")
 
-    def _load_from_node(self) -> ModelData | None:
-        return self.model_from_node.data_object
+    def _load_from_node(self, node: ModelData, arch: str) -> ModelData | None:
+        self.model.arch = arch
+        return node
 
     def _try_load_model(self, arch: str) -> ModelData | None:
 
@@ -268,13 +252,14 @@ Try: verdi code create core.code.installed --config janus.yml""")
             case "From URI":
                 return self._load_from_uri(self.model_from_uri.value, arch)
             case "AiiDA Database":
-                return self._load_from_node()
+                return self._load_from_node(self.model_from_node.data_object, arch)
 
     def submit(self, _: ipw.Button | None = None):
         self.status.clear()
         self.logspace.clear_output()
 
         with self.logspace:
+            self.running()
             if not (loaded_code := self._try_load_code(self.code.value)):
                 return
             if not (loaded_model := self._try_load_model(self.arch.value)):
@@ -283,8 +268,8 @@ Try: verdi code create core.code.installed --config janus.yml""")
             self.model.code = loaded_code
             self.model.model = loaded_model
             self.model.device = self.device.value
-
-            self.status.success(f"Loaded code: {loaded_code}, model: {loaded_model}")
+            self.model.submitted = True
+            self.ok(f"Loaded code: {loaded_code}, model: {loaded_model}")
 
         super().submit(_)
 
@@ -304,8 +289,7 @@ Try: verdi code create core.code.installed --config janus.yml""")
         """Update the list of available models."""
         qb = QueryBuilder()
         qb.append(ModelData, project=["label", "id"])
-        with self.logspace:
-            print(qb.all())
+
         models = qb.all()
         model_labels = [(f"{label or repr(label)}:{idx}", idx) for label, idx in models]
         self.model_from_node.options = model_labels

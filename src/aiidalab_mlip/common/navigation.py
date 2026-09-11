@@ -71,7 +71,7 @@ class QuickAccessButtons(ipw.HBox):
             icon="book",
         )
         self.docs_link.on_click(
-            partial(open_link_in_new_tab, "https://github.com/stfc/aiidalab-chemshell")
+            partial(open_link_in_new_tab, "https://github.com/stfc/aiidalab-mlip")
         )
 
         children = [

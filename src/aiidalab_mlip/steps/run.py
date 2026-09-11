@@ -1,16 +1,17 @@
 """Run calculation."""
-import aiidalab_widgets_base as awb
+
 import ipywidgets as ipw
 from aiida import engine, orm
 from aiida_mlip.calculations.geomopt import GeomOpt
 from aiida_mlip.calculations.md import MD
 from aiida_mlip.calculations.singlepoint import Singlepoint
-from alc_aiidalab_widgets.layouts import Step
+from alc_aiidalab_widgets.layouts import WizardStep
+from ipywidgets import link
 
 from aiidalab_mlip.models import MainAppModel
 
 
-class RunWizardStep(Step, awb.WizardAppWidgetStep):
+class RunWizardStep(WizardStep):
     def __init__(self, model: MainAppModel, **kwargs):
         """
         Initialize prediction wizard step.
@@ -21,6 +22,22 @@ class RunWizardStep(Step, awb.WizardAppWidgetStep):
             The prediction data model
         """
         self.model = model
+
+        self.label = ipw.Text(
+            value=self.model.process_label,
+            placeholder="Enter process label",
+            description="Label:",
+            layout=ipw.Layout(width="80%"),
+        )
+        link((self.label, "value"), (self.model, "process_label"))
+
+        self.description = ipw.Textarea(
+            value=self.model.process_description,
+            placeholder="Enter process description",
+            description="Description:",
+            layout=ipw.Layout(width="80%"),
+        )
+        link((self.description, "value"), (self.model, "process_description"))
 
         self.run_button = ipw.Button(
             description="Run Calculation",
@@ -34,10 +51,34 @@ class RunWizardStep(Step, awb.WizardAppWidgetStep):
         super().__init__(
             title="Run Predictions",
             info="Run calculations using the trained MLIP model.",
-            widgets=[self.run_button],
+            widgets=[self.label, self.description, self.run_button],
             submittable=False,
             **kwargs,
         )
+        for mod in (self.model.structure_model, self.model.mlip_model, self.model.task_model):
+            mod.observe(self._ready_conf, "submitted")
+        self._ready_conf()
+
+    def _ready_conf(self, _: bool | None = None) -> None:
+        if all(
+            mod.submitted
+            for mod in (self.model.structure_model, self.model.mlip_model, self.model.task_model)
+        ):
+            self.state = self.State.READY
+            self.label.placeholder = self._default_name
+        else:
+            self.state = self.State.INIT
+
+    @property
+    def _default_name(self) -> str:
+        if self.state is self.State.READY:
+            return f"{self.model.structure_model.filename or self.model.structure_model.structure.get_atoms()}:{self.model.task_model.task}"
+        else:
+            return "Unknown"
+
+    def _handle_displayed(self, **kwargs):
+        self.label.placeholder = self._default_name
+        super()._handle_displayed(**kwargs)
 
     def submit(self, _):
         with self.logspace:
@@ -52,7 +93,7 @@ class RunWizardStep(Step, awb.WizardAppWidgetStep):
             model = self.model.mlip_model.model
 
             calc_type = self.model.task_model.task
-            display_name = self.model.mlip_model.process_label or calc_type
+            display_name = self._default_name
             task_parameters = self.model.task_model.task_parameters
 
             print(f"Setting up {calc_type} calculation...")
@@ -95,8 +136,8 @@ class RunWizardStep(Step, awb.WizardAppWidgetStep):
             # Submit calculation
             print(f"Submitting {display_name}...")
             node = engine.submit(builder)
-            node.label = self.model.mlip_model.process_label
-            node.description = self.model.mlip_model.process_description
+            node.label = self.model.process_label or self._default_name
+            node.description = self.model.process_description
 
             print(f"Submitted successfully!")
             print(f"  PK: {node.pk}")

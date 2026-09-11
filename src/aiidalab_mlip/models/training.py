@@ -1,6 +1,8 @@
 """Model for MLIP training step."""
 
-from traitlets import List, Unicode
+from traitlets import Dict, List
+
+from aiidalab_mlip.models import CodeModel
 
 from .base import Model
 
@@ -8,5 +10,7 @@ from .base import Model
 class TrainingModel(Model):
     """Model for MLIP training step."""
 
-    model_type = Unicode(default_value="MACE")
+    code = CodeModel()
+    structures = Dict()
     training_data = List(default_value=[])
+    parameters: Dict()

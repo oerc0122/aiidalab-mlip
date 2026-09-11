@@ -3,10 +3,9 @@
 import random
 from operator import not_
 
-import aiidalab_widgets_base as awb
 import ase.optimize
 import ipywidgets as ipw
-from alc_aiidalab_widgets.layouts import ParameterStep, Step
+from alc_aiidalab_widgets.layouts import ParameterStep, WizardStep
 from alc_aiidalab_widgets.types import CallbackDict
 from alc_aiidalab_widgets.widgets.checkbutton import CheckButton
 from alc_aiidalab_widgets.widgets.multiselect import MultiSelect
@@ -17,7 +16,7 @@ from aiidalab_mlip.models.task import TaskModel
 from aiidalab_mlip.util import tab_from_dict
 
 
-class TaskWizardStep(Step, awb.WizardAppWidgetStep):
+class TaskWizardStep(WizardStep):
     """Wizard step for task selection."""
 
     def __init__(self, model: TaskModel, **kwargs) -> None:
@@ -43,14 +42,15 @@ class TaskWizardStep(Step, awb.WizardAppWidgetStep):
             widgets=[self.tabs],
             **kwargs,
         )
+        self.ok()
 
-    def submit(self, _) -> None:
+    def submit(self, b) -> None:
+        self.running()
         self.model.task = self.tabs.get_title(self.tabs.selected_index)
         self.model.task_parameters = self.tabs.children[self.tabs.selected_index].get()
-
-        self.status.success("Parameters submitted.")
-
-        super().submit(_)
+        self.model.submitted = True
+        self.ok("Parameters submitted.")
+        super().submit(b)
 
 
 class SPETask(ParameterStep):
@@ -71,11 +71,6 @@ class SPETask(ParameterStep):
             },
             submittable=False,
         )
-        self.properties_widget.observe(self._on_properties, "value")
-
-    def _on_properties(self, change: dict):
-        with self.logspace:
-            print(change)
 
 
 class GeomOptTask(ParameterStep):

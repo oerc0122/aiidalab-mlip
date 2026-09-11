@@ -13,8 +13,6 @@ class CodeModel(Model):
     code = Instance(klass=Code)
 
     ncpus = Int(4)
-    process_label = Unicode("")
-    process_description = Unicode("")
 
     model = Instance(klass=ModelData)
     arch = Unicode()
