@@ -86,7 +86,7 @@ class TrainWizardWidget(ipw.VBox):
         self.model_step = ModelWizardStep(model.code)
         self.distribute_step = DistributeWizardStep(model)
         # self.task_step = TaskWizardStep(model.task_model)
-        self.run_step = RunWizardStep(model)
+        # self.run_step = RunWizardStep(model)
         # self.results_step = ResultsWizardStep(model.results_model)
 
         # Link structure to prediction step
@@ -101,7 +101,7 @@ class TrainWizardWidget(ipw.VBox):
                 ("Select model", self.model_step),
                 ("Distribute data", self.distribute_step),
                 # ("Train MLIP", self.training_step),
-                ("Run", self.run_step),
+                # ("Run", self.run_step),
                 # ("View Results", self.results_step),
             ],
         )

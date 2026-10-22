@@ -12,7 +12,9 @@ from aiidalab_widgets_base import SmilesWidget
 from alc_aiidalab_widgets.layouts import WizardStep
 from alc_aiidalab_widgets.types import CallbackDict
 from alc_aiidalab_widgets.widgets.database import AiiDADatabaseQueryWidget
+from alc_aiidalab_widgets.widgets.dependent_sliders import ProportionSlider
 from alc_aiidalab_widgets.widgets.file_handling import FileUploadWidget
+from alc_aiidalab_widgets.widgets.parameters import ParamEntry
 from alc_aiidalab_widgets.widgets.structure import StructureViewWidget
 from ase import Atoms
 from ase.io.formats import UnknownFileTypeError, filetype
@@ -21,7 +23,7 @@ from typing_extensions import override
 
 from aiidalab_mlip.models import TrainingModel
 from aiidalab_mlip.models.structure import StructureModel
-from aiidalab_mlip.util import tab_from_dict
+from aiidalab_mlip.util import get_next_name, tab_from_dict
 
 
 class StructureGetter:
@@ -29,12 +31,18 @@ class StructureGetter:
 
     logspace: ipw.Output
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, multiple: bool = False, **kwargs) -> None:
         # upload file
-        self.file_uploader = FileUploadWidget(description="Structure file: ")
+        self.file_uploader = FileUploadWidget(description="Structure file: ", multiple=multiple)
         self.file_input_widget = ipw.VBox([self.file_uploader])
 
         self.viewer = StructureViewWidget()
+        self.slider = ipw.IntSlider(
+            description="Frame",
+            disabled=True,
+            layout={"width": "50%", "margin": "auto"},
+        )
+        self.slider.observe(self._on_slider_select, "value")
 
         # AiiDA database
         self.database_widget = AiiDADatabaseQueryWidget(
@@ -57,6 +65,23 @@ class StructureGetter:
         self.database_widget.observe(self._on_database_search, "data_object")
         self.smiles_widget.observe(self._on_smiles_generation, "structure")
 
+    def _update_slider(self, value: list[Atoms] | None) -> None:
+        if value is None:
+            self.slider.min = 0
+            self.slider.max = 0
+            self.slider.value = 0
+            self.slider.disabled = True
+            return
+
+        self.slider.min = 0
+        self.slider.max = len(value) - 1
+        self.slider.value = 0
+        self.slider.disabled = False
+
+    @abstractmethod
+    def _on_slider_select(self, _new: int, /) -> None:
+        raise NotImplementedError
+
     @abstractmethod
     def _on_file_upload(self, _change: CallbackDict[SinglefileData], /) -> None:
         raise NotImplementedError
@@ -71,8 +96,16 @@ class StructureGetter:
 
     def _get_uploaded_structure(
         self, change: CallbackDict[SinglefileData]
-    ) -> tuple[str, Atoms | list[Atoms]]:
-        """When file upload button is pressed."""
+    ) -> tuple[str, list[Atoms]]:
+        """When file upload button is pressed.
+
+        Returns
+        -------
+        str
+            Filename.
+        list[Atoms]
+            Structure.
+        """
         file_data = change.get("new")
 
         assert file_data
@@ -83,25 +116,48 @@ class StructureGetter:
             file = io.BytesIO(file_data.get_content("rb"))
 
         try:
-            format = filetype(file_data.filename, read=False)
+            load_format = filetype(file_data.filename, read=False)
         except UnknownFileTypeError:
-            format = filetype(io.BytesIO(bytes(file.read(1000), encoding="utf-8")), read=True)
+            load_format = filetype(io.BytesIO(bytes(file.read(1000), encoding="utf-8")), read=True)
             file.seek(0)
 
-        structure = ase_read(file, index=":", format=format)
+        structure = ase_read(file, index=":", format=load_format)
+        if isinstance(structure, Atoms):
+            structure = [structure]
 
         return file_data.filename, structure
 
     def _get_smiles_generation(self, change: CallbackDict[Atoms]) -> Atoms:
-        """When SMILES string is inputted."""
+        """When SMILES string is inputted.
+
+        Returns
+        -------
+        Atoms
+            Generated structure.
+        """
         assert change["new"] is not None
 
         return change["new"]
 
     def _get_database(
-        self, node: Node, change: CallbackDict[Node]
+        self, node: Node, change: CallbackDict[SinglefileData]
     ) -> tuple[str | None, Atoms | list[Atoms] | None]:
-        """When data is loaded from AiiDA database."""
+        """When data is loaded from AiiDA database.
+
+        Parameters
+        ----------
+        node : Node
+            Database node.
+        change : CallbackDict[Node]
+            New node.
+
+        Returns
+        -------
+        str | None
+            Filename of file.
+        Atoms | list[Atoms] | None
+            Loaded structure.
+        """
         match node:
             case SinglefileData():
                 return self._get_uploaded_structure(change)
@@ -133,12 +189,6 @@ class StructureWizardStep(StructureGetter, WizardStep):
         self.model = model
 
         StructureGetter.__init__(self, **kwargs)
-        self.slider = ipw.IntSlider(
-            description="Frame",
-            disabled=True,
-            layout={"width": "50%", "margin": "auto"},
-        )
-        self.slider.observe(self._on_slider_select, "value")
         WizardStep.__init__(
             self,
             title="Select or Upload Structure",
@@ -177,20 +227,13 @@ class StructureWizardStep(StructureGetter, WizardStep):
     @structures.setter
     def structures(self, value: list[Atoms] | Atoms | None) -> None:
         if value is None:
-            self.slider.min = 0
-            self.slider.max = 0
-            self.slider.value = 0
-            self.slider.disabled = True
+            self._update_slider(value)
             self._structures.clear()
             self._display_structure_info(None)
             return
 
         self._structures = [value] if isinstance(value, Atoms) else value
-
-        self.slider.min = 0
-        self.slider.max = len(self.structures) - 1
-        self.slider.value = 0
-        self.slider.disabled = False
+        self._update_slider(self._structures)
 
     @override
     def _on_file_upload(self, change: CallbackDict[SinglefileData]) -> None:
@@ -207,9 +250,7 @@ class StructureWizardStep(StructureGetter, WizardStep):
             try:
                 filename, self.structures = self._get_uploaded_structure(change)
             except Exception:
-                self.fail(
-                    f"Unable to load {change['new'].filename}."
-                )
+                self.fail(f"Unable to load {change['new'].filename}.")
 
         if self.status.status is self.status._Stat.FAILURE:
             self.fail()
@@ -274,14 +315,14 @@ class StructureWizardStep(StructureGetter, WizardStep):
 
 
 class MultiStructureStep(StructureGetter, WizardStep):
-    """x."""
+    """Structure step allowing multiple file uploads."""
 
     def __init__(self, model: TrainingModel, /, **kwargs: Any) -> None:
         """Initialize structure wizard step."""
         self.model = model
 
-        self.structure_list = ipw.Select(layout={"margin": "auto", "width": "80%"})
-        self.structure_list.observe(self._selection_changed, "value")
+        self.structure_list = ParamEntry(layout={"margin": "auto", "width": "80%"})
+        self.structure_list.plist.observe(self._selection_changed, "value")
 
         StructureGetter.__init__(self, **kwargs)
         WizardStep.__init__(
@@ -291,16 +332,33 @@ class MultiStructureStep(StructureGetter, WizardStep):
             widgets=(
                 self.tabs,
                 self.structure_list,
+                self.slider,
                 self.viewer,
             ),
             **kwargs,
         )
 
     def _update_structures(self) -> None:
-        self.structure_list.options = self.model.structures.keys()
+        self.structure_list.value = {
+            key: struct[0].get_chemical_formula() for key, struct in self.model.structures.items()
+        }
 
-    def _selection_changed(self, selection: CallbackDict[str]) -> None:
-        self._display_structure_info(self.model.structures[selection["new"]])
+    @property
+    def current_trajectory(self) -> list[Atoms]:
+        """Current trajectory."""
+        return self.model.structures[self.structure_list.plist.value]
+
+    @property
+    def current_structure(self) -> Atoms:
+        """Current structure."""
+        return self.current_trajectory[self.slider.value]
+
+    def _on_slider_select(self, _new: int) -> None:
+        self._display_structure_info(self.current_structure)
+
+    def _selection_changed(self, _selection: CallbackDict[str]) -> None:
+        self._update_slider(self.current_trajectory)
+        self._display_structure_info(self.current_structure)
 
     @override
     def _on_file_upload(self, change: CallbackDict[SinglefileData]) -> None:
@@ -324,7 +382,7 @@ class MultiStructureStep(StructureGetter, WizardStep):
 
         # Update status
         self._update_structures()
-        self.ok(f"Loaded {filename}: {len(structure)} atoms.")
+        self.ok(f"Loaded {filename}: {len(structure[0])} atoms.")
         self.ready()
 
     @override
@@ -335,11 +393,11 @@ class MultiStructureStep(StructureGetter, WizardStep):
 
         structure = self._get_smiles_generation(change)
 
-        self.model.structures[structure.get_chemical_formula()] = structure
+        self.model.structures[structure.get_chemical_formula()] = [structure]
 
         # Update status
         self._update_structures()
-        self.ok(f"Loaded {self.smiles_widget.smiles.value}: {len(structure)} atoms.")
+        self.ok(f"Loaded {self.smiles_widget.smiles.value}: {len(structure[0])} atoms.")
         self.ready()
 
     @override
@@ -350,8 +408,23 @@ class MultiStructureStep(StructureGetter, WizardStep):
 
         filename, structure = self._get_database(node, change)
         if structure:
+            if filename:
+                name = (
+                    get_next_name(
+                        "{filename}_{trial}",
+                        exists=self.model.structures,
+                        filename=filename,
+                        default="",
+                    )
+                    if filename in self.model.structures
+                    else filename
+                )
+            else:
+                name = str(hash(structure))
+
+            self.model.structures[name] = structure
             self._update_structures()
-            self.model.structures[filename or str(hash(structure))] = structure
+
             self.ok(f"Loaded structure from {node.pk}")
         else:
             self.fail(f"Cannot load structure from {node.node_type}")

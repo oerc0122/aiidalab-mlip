@@ -1,5 +1,8 @@
 """Defines the data distribution step."""
+
+from alc_aiidalab_widgets.widgets.dependent_sliders import ProportionSlider
 from collections.abc import Generator
+from typing import ClassVar
 
 import ipywidgets as ipw
 from aiida_mlip.calculations.descriptors import Descriptors
@@ -10,50 +13,35 @@ from plotly.graph_objects import FigureWidget
 class DistributeWizardStep(WizardStep):
     """Wizard step for data distribution."""
 
-    FACTORS = ("Train", "Test", "Validation")
-    DEFAULTS = {"Train": 0.6, "Test": 0.3, "Validation": 0.1}
+    DEFAULTS: ClassVar[dict[str, float]] = {"Train": 60, "Test": 30, "Validation": 10}
 
     def __init__(self, model, **kwargs):
-        self.ratio = {}
-        self.labels = {}
-        cont = []
-        for i in self.FACTORS:
-            self.ratio[i] = ipw.FloatSlider(
-                min=0.0,
-                max=1.0,
-                value=self.DEFAULTS[i],
-                readout=False,
-                description=i + ":",
-                layout={"width": "80%", "margin": "auto"},
-            )
-            self.labels[i] = ipw.Label(layout={"width": "20%", "margin": "auto"})
-            cont.append(
-                ipw.HBox([self.ratio[i], self.labels[i]], layout={"width": "30%", "margin": "auto"})
-            )
-            self.ratio[i].observe(self._update_ratio, "value")
 
-        ratios = ipw.HBox(cont)
+        self.proportion = ProportionSlider[float](
+            ipw.FloatSlider(description=label, min=0, max=100, value=initial, readout=False)
+            for label, initial in self.DEFAULTS.items()
+        )
         self.plot = FigureWidget()
-        self.compute = ipw.Button("Calculate descriptors")
+        self.options = ipw.MultiSelect(
+            options=("invariants_only", "calc_per_element", "calc_per_atom"),
+        )
+        self.compute = ipw.Button(description="Calculate descriptors")
         self.compute.observe(self._compute_descriptors)
 
         super().__init__(
             title="Run Predictions",
             info="Run calculations using the trained MLIP model.",
-            widgets=[ratios, self.plot, self.compute],
+            widgets=(self.proportion, self.options, self.compute, self.plot),
             **kwargs,
         )
-        self._update_ratio()
-
-    @property
-    def values(self) -> Generator[float]:
-        return (x.value for x in self.ratio.values())
-
-    def _update_ratio(self, *_) -> None:
-        total = sum(self.values)
-
-        for factor in self.FACTORS:
-            self.labels[factor].value = f"{self.ratio[factor].value / total:4.2%}"
 
     def _compute_descriptors(self, *_):
-        Descriptors
+        builder = Descriptors.get_builder()
+        builder.invariants_only = "invariants_only" in self.options.value
+        builder.calc_per_element = "calc_per_element" in self.options.value
+        builder.calc_per_atom = "calc_per_atom" in self.options.value
+        builder.code = self.model.task_model.code
+        builder.struct = structure
+        builder.model = model
+        builder.arch = orm.Str(self.model.mlip_model.arch)
+        builder.device = orm.Str(self.model.mlip_model.device)
