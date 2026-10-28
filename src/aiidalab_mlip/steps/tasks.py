@@ -1,5 +1,7 @@
 """Select tasks widget."""
 
+from ase.vibrations.pickle2json import description
+
 import random
 from operator import not_
 
@@ -167,10 +169,23 @@ class MDTask(ParameterStep):
         widgets = {
             "steps": ipw.IntText(
                 description="Steps:",
+                value=1000,
                 help="Number of steps in MD simulation.",
             ),
             "timestep": ipw.FloatText(
-                description="Timestep:", help="Timestep for integrator, in fs."
+                description="Timestep (fs):",
+                value=1.0,
+                help="Timestep for integrator, in fs.",
+            ),
+            "traj_every": ipw.IntText(
+                description="Traj Every:",
+                value=100,
+                help="Frequency of dumping trajectory information.",
+            ),
+            "stats_every": ipw.IntText(
+                description="Stats Every:",
+                value=100,
+                help="Frequency of dumping statistics information.",
             ),
             # "plumed_input": ipw.FileUpload(
             #     description="Plumed file", help="Path to PLUMED input file."
@@ -217,7 +232,7 @@ class MDTask(ParameterStep):
                     "nvt-csvr",
                     "nph",
                     "npt",
-                    "npt-mtk",
+                    # "npt-mtk",
                     "npt-mtk-iso",
                     "npt-mtk-aniso",
                 ),
@@ -374,7 +389,7 @@ class MDTask(ParameterStep):
         tabs = {
             "Ensemble": self.ensemble_opts,
             "Equilibration": self.equil_opts,
-            "Temperature Ramping": self.temp_ramp_opts,
+            # "Temperature Ramping": self.temp_ramp_opts,
         }
         params_blk = tab_from_dict(ipw.Accordion, tabs)
         params_blk.selected_index = None
@@ -386,7 +401,15 @@ class MDTask(ParameterStep):
             default_args={"": {}},
             exclude_from_defaults=widgets.keys(),
             structure=(
-                ipw.HBox([widgets["steps"], widgets["timestep"]]),
+                ipw.GridBox(
+                    [
+                        widgets["steps"],
+                        widgets["timestep"],
+                        widgets["stats_every"],
+                        widgets["traj_every"],
+                    ],
+                    layout=ipw.Layout(grid_template_columns="50% " * 2),
+                ),
                 widgets["seed"],
                 params_blk,
             ),
@@ -480,10 +503,11 @@ class PhononTask(ParameterStep):
                     "individual diagonal element; or nine values ('1 2 3 4 5 6 7 8 9'), "
                     "which specifies all elements, filling the matrix row-wise."
                 ),
-                default="1"
+                default="1",
             ),
             "n_qpoints": ipw.BoundedIntText(
-                description="N Q-Points:", help="Number of q-points to sample.",
+                description="N Q-Points:",
+                help="Number of q-points to sample.",
                 default=51,
                 min=1,
             ),
